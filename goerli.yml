@@ -1,0 +1,120 @@
+version: '3.1'
+
+services:
+  erigon-trace:
+    image: thorax/erigon:v2.29.0
+    command: >
+      erigon --chain goerli
+      --metrics --metrics.addr=0.0.0.0 --metrics.port=6060
+      --private.api.addr=0.0.0.0:9090
+      --pprof
+      --pprof.addr=0.0.0.0
+      --pprof.port=6061
+      --authrpc.addr=0.0.0.0
+      --authrpc.vhosts=*
+      --authrpc.jwtsecret=/jwtsecret
+      --snapshots=true
+      --torrent.download.rate=${DOWNLOAD_SPEED}
+      --torrent.upload.rate=${UPLOAD_SPEED}
+    volumes:
+      - erigon-trace:/home/erigon/.local/share/erigon
+      - .jwtsecret:/jwtsecret
+    networks:
+      - chains
+    ports:
+      # P2P
+      - "30303:30303"
+    restart: unless-stopped
+    stop_grace_period: 1m
+
+  rpcdaemon:
+    image: thorax/erigon:v2.29.0
+    command: >
+      rpcdaemon --datadir=/home/erigon/.local/share/erigon/goerli
+      --private.api.addr=erigon-trace:9090
+      --txpool.api.addr=erigon-trace:9090
+      --http.addr=0.0.0.0
+      --http.vhosts=*
+      --http.corsdomain=*
+      --http.api=eth,erigon,web3,net,debug,trace,txpool
+      --ws
+    pid: service:erigon-trace # Use erigon's PID namespace. It's required to open Erigon's DB from another process (RPCDaemon local-mode)
+    volumes:
+      - erigon-trace:/home/erigon/.local/share/erigon
+    networks:
+      - chains
+    ports:
+      - "127.0.0.1:8545:8545"
+    restart: unless-stopped
+    depends_on:
+      - "erigon-trace"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.rpcdaemon-stripprefix.stripprefix.prefixes=/erigon-goerli"
+      - "traefik.http.services.rpcdaemon.loadbalancer.server.port=8545"
+      - "traefik.http.routers.rpcdaemon.entrypoints=websecure"
+      - "traefik.http.routers.rpcdaemon.tls.certresolver=myresolver"
+      - "traefik.http.routers.rpcdaemon.rule=Host(`$DOMAIN`) && PathPrefix(`/erigon-goerli`)"
+      - "traefik.http.routers.rpcdaemon.middlewares=rpcdaemon-stripprefix, ipwhitelist"
+
+  lighthouse:
+    image: sigp/lighthouse:latest-modern
+    command: >
+      lighthouse beacon_node
+      --network prater
+      --reconstruct-historic-states
+      --execution-endpoint http://erigon-trace:8551
+      --execution-jwt /jwtsecret
+      --http
+      --http-address=0.0.0.0
+    volumes:
+      - .jwtsecret:/jwtsecret
+      - lighthouse_data:/root/.lighthouse
+    networks:
+      - chains
+    ports:
+      # P2P Port
+      - "9000:9000"
+      # HTTP API available over 127.0.0.1
+      - "127.0.0.1:5052:5052"
+    restart: unless-stopped
+    stop_grace_period: 1m
+
+  traefik:
+    image: traefik:latest
+    command:
+      - "--log.level=DEBUG"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.file.filename=/dynamic_config.yml"
+      - "--entrypoints.websecure.address=:443"
+      - "--entryPoints.metrics.address=:8082"
+      - "--metrics.prometheus.entryPoint=metrics"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      # TESTING
+      # - "--certificatesresolvers.myresolver.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory"
+      - "--certificatesresolvers.myresolver.acme.email=$MAIL"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    volumes:
+      - "./traefik/letsencrypt:/letsencrypt"
+      - "./traefik/config/dynamic_config.yml:/dynamic_config.yml"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - chains
+    ports:
+      - "443:443"
+    restart: always
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.ipwhitelist.ipwhitelist.sourcerange=$WHITELIST"
+
+volumes:
+    erigon-trace:
+    lighthouse_data:
+
+networks:
+  chains:
+    driver: bridge
+    ipam:
+     config:
+       - subnet: 192.168.0.1/27

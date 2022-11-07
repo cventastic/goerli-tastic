@@ -50,5 +50,3 @@ RPC is available at
 RPC is also locally available at:
 
 ```http://127.0.0.1:8545/```
-
-# goerli-tastic
