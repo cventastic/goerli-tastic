@@ -2,7 +2,7 @@
 
 For [Erigon](https://github.com/ledgerwatch/erigon#system-requirements)
 
-As of 7th Nov 2022 goerli archive database size is 340 GB
+As of 7th Nov 2022 goerli archive database (340 GB) and lighthouse database (133 GB)  
 
 #### Instructions:
 
