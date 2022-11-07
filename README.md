@@ -27,6 +27,9 @@ WHITELIST=192.168.1.1,192.168.1.2
 
 # put the e-mail you want to use for LetsEncrypt notifications about your certificate here:
 MAIL=mail@my.domain.com
+
+# compose file
+COMPOSE_FILE=goerli.yml
 ```
 
 Create a JWT-Token for authentication between consensus- and execution-client:
